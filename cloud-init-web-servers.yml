@@ -1,0 +1,55 @@
+#cloud-config
+users:
+  - name: user
+    groups: sudo
+    shell: /bin/bash
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHjcY1l+PTTe2WTD+N7zvHB1SOf07UWJgA2FbdYSG5E8 KPUMCProcop@yandex.ru
+
+#Установка nginx
+
+# 1. ОБНОВЛЕНИЕ СИСТЕМЫ И РЕПОЗИТОРИЕВ
+package_update: true
+package_upgrade: false
+# 2. УСТАНОВКА ВЕБ-СЕРВЕРА NGINX
+packages:
+  - nginx
+# 3. УПРАВЛЕНИЕ СЛУЖБАМИ
+# Автоматически добавляет nginx в автозагрузку и запускает его
+services:
+  nginx:
+    enabled: true
+    state: started
+# 4. СОЗДАНИЕ УНИКАЛЬНОЙ СТАРТОВОЙ СТРАНИЦЫ
+runcmd:
+  # 1. Записываем статическую (верхнюю) часть HTML-файла
+  - 'echo "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Welcome</title><style>body { font-family: sans-serif; text-align: center; margin-top: 10%; background-color: #f4f4f9; }.container { background: white; padding: 30px; display: inline-block; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }h1 { color: #04b; }.info { font-size: 1.2em; color: #555; margin: 10px 0; }</style></head><body><div class=\"container\"><h1>Hello from Web Server!</h1>" > /var/www/html/index.html'
+  
+  # 2. Выполняем команду получения имени хоста и дописываем результат в HTML
+  - "echo '<div class=\"info\"><strong>NAME SERVER:</strong> '$(hostname)'</div>' >> /var/www/html/index.html"
+  
+  # 3. Выполняем команду получения IP и дописываем результат в HTML
+  - "echo '<div class=\"info\"><strong>Internal IP:</strong> '$(hostname -I | awk '{print $1}')'</div>' >> /var/www/html/index.html"
+  
+  # 4. Закрываем теги в конце HTML-файла
+  - 'echo "</div></body></html>" >> /var/www/html/index.html'
+  #Установка агентов Zabbix
+  - wget https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_7.0-1+ubuntu22.04_all.deb
+  - dpkg -i zabbix-release_7.0-1+ubuntu22.04_all.deb
+  - apt-get update
+
+  # 3. Установка Zabbix Agent 2
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y zabbix-agent2 zabbix-agent2-plugin-*
+
+  # 4. Конфигурация агента мониторинга (указываем явно IP Zabbix-сервера)
+  # ИСПРАВЛЕНО: Замените 10.10.1.X на реальный внутренний IP вашего Zabbix-сервера
+  - sed -i 's/Server=127.0.0.1/Server=10.10.1.X/g' /etc/zabbix/zabbix_agent2.conf
+  - sed -i 's/ServerActive=127.0.0.1/ServerActive=10.10.1.X/g' /etc/zabbix/zabbix_agent2.conf
+  
+  # Автоматически прописываем уникальное имя хоста каждой машины в конфиг Zabbix
+  - sed -i "s/Hostname=Zabbix server/$(hostname)/g" /etc/zabbix/zabbix_agent2.conf
+
+  # 5. Запуск агента мониторинга
+  - systemctl restart zabbix-agent2
+  - systemctl enable zabbix-agent2

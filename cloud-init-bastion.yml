@@ -1,0 +1,20 @@
+#cloud-config
+users:
+  - name: user
+    groups: sudo
+    shell: /bin/bash
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHjcY1l+PTTe2WTD+N7zvHB1SOf07UWJgA2FbdYSG5E8 KPUMCProcop@yandex.ru
+
+#Zabbix_agent_bastion
+package_update: true
+runcmd:
+  - wget https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_7.0-1+ubuntu22.04_all.deb
+  - dpkg -i zabbix-release_7.0-1+ubuntu22.04_all.deb
+  - apt-get update
+  - apt-get install -y zabbix-agent2 zabbix-agent2-plugin-*
+  - sed -i 's/Server=127.0.0.1/Server=${zabbix_server_ip}/g' /etc/zabbix/zabbix_agent2.conf
+  - sed -i 's/ServerActive=127.0.0.1/ServerActive=${zabbix_server_ip}/g' /etc/zabbix/zabbix_agent2.conf
+  - sed -i "s/Hostname=Zabbix server/Hostname=bastion-server/g" /etc/zabbix/zabbix_agent2.conf
+  - systemctl enable zabbix-agent2 --now

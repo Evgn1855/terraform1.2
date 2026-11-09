@@ -1,0 +1,49 @@
+#cloud-config
+users:
+  - name: user
+    groups: sudo
+    shell: /bin/bash
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHjcY1l+PTTe2WTD+N7zvHB1SOf07UWJgA2FbdYSG5E8 KPUMCProcop@yandex.ru
+package_update: true
+
+runcmd:
+  # ОЖИДАНИЕ: Ждем, пока система официально подтвердит, что интернет онлайн
+  - until ping -c 1 -W 1 8.8.8.8 &>/dev/null; do sleep 1; done
+  #Отключаем IPv6
+  - echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4
+  #Скачиваем zabbix
+  - wget https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_7.0-1+ubuntu22.04_all.deb
+  #Установка
+  - dpkg -i zabbix-release_7.0-1+ubuntu22.04_all.deb
+  - apt-get update
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y zabbix-server-pgsql zabbix-frontend-php php8.1-pgsql zabbix-nginx-conf zabbix-sql-scripts postgresql
+  
+    # ОЖИДАНИЕ: Даем PostgreSQL время гарантированно запуститься
+  - echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4
+  - until pg_isready -q; do sleep 1; done
+  
+  # Создаем пользователя базы данных и саму базу (здесь переключение на пользователя postgres обязательно)
+  - sudo -u postgres psql -c "CREATE USER zabbix WITH PASSWORD 'zabbix_secure_pass';"
+  - sudo -u postgres psql -c "CREATE DATABASE zabbix OWNER zabbix;"
+  
+  # Импортируем начальную схему базы данных (здесь переключение на пользователя zabbix обязательно)
+  - zcat /usr/share/zabbix-sql-scripts/postgresql/server.sql.gz | sudo -u zabbix psql zabbix
+  
+  # Настраиваем конфигурационные файлы через sed (права root уже есть, sudo не нужен)
+  - sed -i 's/# DBPassword=/DBPassword=zabbix_secure_pass/g' /etc/zabbix/zabbix_server.conf
+  - sed -i 's/#\s*listen\s*8080;/listen 8080;/g' /etc/zabbix/nginx.conf
+  - sed -i 's/listen \[::\]:80;/listen \[::\]:8080;/g' /etc/zabbix/nginx.conf
+  - sed -i 's/#\s*server_name\s*example.com;/server_name _;/g' /etc/zabbix/nginx.conf
+   # Отключаем дефолтный сайт Nginx, чтобы освободить порт 80
+  - rm -f /etc/nginx/sites-enabled/default
+ 
+  # Запускаем и включаем службы в автозагрузку (права root уже есть)
+  - systemctl restart zabbix-server nginx php8.1-fpm
+  - systemctl enable zabbix-server nginx php8.1-fpm
+
+  #Проверка доступности
+  #sudo cat /var/log/cloud-init-output.log 
+  #nc -zv 153.51.117.63 8080
+  #Test-NetConnection -ComputerName 153.51.117.63 -Port 8080
